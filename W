@@ -1,0 +1,91 @@
+from flask import Flask, request, render_template_string
+
+app = Flask(__name__)
+
+html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wingo Sniper Predictor</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        textarea { width: 100%; height: 200px; }
+        table, th, td { border: 1px solid black; border-collapse: collapse; padding: 5px; }
+        .trap { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>Wingo Sniper Prediction Tool</h2>
+    <form method="POST">
+        <label>Paste Round Data:</label><br>
+        <textarea name="data" placeholder="Period,Number,Size,Colour,Telegram\n20250509100010451,3,Small,Green,big\n..."></textarea><br>
+        <input type="submit" value="Predict">
+    </form>
+    {% if predictions %}
+    <h3>Predictions:</h3>
+    <table>
+        <tr><th>Period</th><th>Telegram</th><th>Actual</th><th>Prediction</th><th>Trap Alert</th></tr>
+        {% for p in predictions %}
+        <tr>
+            <td>{{p.period}}</td>
+            <td>{{p.telegram}}</td>
+            <td>{{p.actual}}</td>
+            <td>{{p.prediction}}</td>
+            <td class="{% if p.trap_alert %}trap{% endif %}">{{'Yes' if p.trap_alert else 'No'}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+</body>
+</html>
+"""
+
+def detect_traps(data):
+    results = []
+    for i in range(1, len(data)):
+        prev = data[i - 1]
+        curr = data[i]
+        prediction = "Skip"
+        trap_alert = False
+
+        if prev["telegram"].lower() != prev["size"].lower():
+            if curr["telegram"].lower() != curr["size"].lower():
+                trap_alert = True
+                prediction = curr["size"]
+            else:
+                prediction = "Flip" if curr["telegram"].lower() == "big" else "Big"
+
+        if i >= 3:
+            last_sizes = [data[i-j]["size"] for j in range(3)]
+            if all(s == "Small" for s in last_sizes):
+                prediction = "Big"
+
+        results.append({
+            "period": curr["period"],
+            "telegram": curr["telegram"],
+            "actual": curr["size"],
+            "prediction": prediction,
+            "trap_alert": trap_alert
+        })
+    return results
+
+@app.route('/', methods=['GET', 'POST'])
+def index():
+    predictions = []
+    if request.method == 'POST':
+        raw_data = request.form['data'].strip().splitlines()
+        parsed_data = []
+        for line in raw_data[1:]:  # skip header
+            p, n, s, c, t = line.strip().split(',')
+            parsed_data.append({
+                "period": p.strip(),
+                "number": int(n.strip()),
+                "size": s.strip(),
+                "colour": c.strip(),
+                "telegram": t.strip()
+            })
+        predictions = detect_traps(parsed_data)
+    return render_template_string(html_template, predictions=predictions)
+
+if __name__ == '__main__':
+    app.run(debug=True)
